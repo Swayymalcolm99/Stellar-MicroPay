@@ -1,0 +1,237 @@
+/**
+ * components/TransactionList.tsx
+ * Displays paginated payment history for a Stellar account.
+ */
+
+import { useState, useEffect, useCallback } from "react";
+import { getPaymentHistory, shortenAddress, explorerUrl, PaymentRecord } from "@/lib/stellar";
+import { formatXLM, timeAgo, copyToClipboard } from "@/utils/format";
+import clsx from "clsx";
+
+interface TransactionListProps {
+  publicKey: string;
+  limit?: number;
+  compact?: boolean;
+}
+
+export default function TransactionList({
+  publicKey,
+  limit = 20,
+  compact = false,
+}: TransactionListProps) {
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const fetchPayments = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getPaymentHistory(publicKey, limit);
+      setPayments(data);
+    } catch (err) {
+      setError("Could not load transaction history.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [publicKey, limit]);
+
+  useEffect(() => {
+    fetchPayments();
+  }, [fetchPayments]);
+
+  const handleCopy = async (text: string, id: string) => {
+    await copyToClipboard(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  if (loading) {
+    return (
+      <div className={compact ? "" : "card"}>
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="animate-pulse flex items-center gap-4 p-3 rounded-xl bg-white/3">
+              <div className="w-10 h-10 rounded-full bg-white/10" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3 bg-white/10 rounded w-1/3" />
+                <div className="h-2 bg-white/5 rounded w-1/2" />
+              </div>
+              <div className="h-4 bg-white/10 rounded w-20" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={compact ? "" : "card"}>
+        <div className="text-center py-8">
+          <p className="text-red-400 text-sm mb-3">{error}</p>
+          <button onClick={fetchPayments} className="btn-secondary text-sm py-2 px-4">
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (payments.length === 0) {
+    return (
+      <div className={compact ? "" : "card"}>
+        <div className="text-center py-12">
+          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-white/5 flex items-center justify-center">
+            <HistoryIcon className="w-6 h-6 text-slate-500" />
+          </div>
+          <p className="text-slate-400 text-sm">No transactions yet</p>
+          <p className="text-slate-600 text-xs mt-1">
+            Send your first payment to get started
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={compact ? "" : "card"}>
+      {!compact && (
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
+            <HistoryIcon className="w-5 h-5 text-stellar-400" />
+            Recent Payments
+          </h2>
+          <button
+            onClick={fetchPayments}
+            className="text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1"
+          >
+            <RefreshIcon className="w-3.5 h-3.5" />
+            Refresh
+          </button>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {payments.map((tx) => (
+          <div
+            key={tx.id}
+            className="flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group"
+          >
+            {/* Direction icon */}
+            <div
+              className={clsx(
+                "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
+                tx.type === "sent"
+                  ? "bg-red-500/10 border border-red-500/20"
+                  : "bg-emerald-500/10 border border-emerald-500/20"
+              )}
+            >
+              {tx.type === "sent" ? (
+                <ArrowUpIcon className="w-4 h-4 text-red-400" />
+              ) : (
+                <ArrowDownIcon className="w-4 h-4 text-emerald-400" />
+              )}
+            </div>
+
+            {/* Details */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-200 capitalize">
+                  {tx.type === "sent" ? "Sent to" : "Received from"}
+                </span>
+                <button
+                  onClick={() =>
+                    handleCopy(
+                      tx.type === "sent" ? tx.to : tx.from,
+                      tx.id
+                    )
+                  }
+                  className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
+                >
+                  {copiedId === tx.id
+                    ? "Copied!"
+                    : shortenAddress(tx.type === "sent" ? tx.to : tx.from, 5)}
+                </button>
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-xs text-slate-500">{timeAgo(tx.createdAt)}</span>
+                {tx.memo && (
+                  <span className="text-xs text-slate-600 truncate max-w-32">
+                    · &ldquo;{tx.memo}&rdquo;
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Amount + link */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span
+                className={clsx(
+                  "text-sm font-mono font-medium",
+                  tx.type === "sent" ? "text-red-400" : "text-emerald-400"
+                )}
+              >
+                {tx.type === "sent" ? "-" : "+"}
+                {formatXLM(tx.amount)}
+              </span>
+              <a
+                href={explorerUrl(tx.transactionHash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-stellar-400"
+                title="View on Stellar Expert"
+              >
+                <ExternalLinkIcon className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Icons ─────────────────────────────────────────────────────────────────────
+
+function HistoryIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
+function ArrowUpIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
+    </svg>
+  );
+}
+
+function ArrowDownIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+    </svg>
+  );
+}
+
+function RefreshIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+    </svg>
+  );
+}
+
+function ExternalLinkIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+    </svg>
+  );
+}

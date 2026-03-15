@@ -1,0 +1,170 @@
+/**
+ * lib/wallet.ts
+ * Freighter wallet integration for Stellar MicroPay.
+ *
+ * Freighter is a browser extension wallet for Stellar.
+ * Install it at: https://freighter.app
+ *
+ * This module wraps the @stellar/freighter-api package with
+ * friendly error messages and typed return values.
+ */
+
+import {
+  isConnected,
+  getPublicKey,
+  signTransaction,
+  requestAccess,
+  isAllowed,
+} from "@stellar/freighter-api";
+
+import { NETWORK_PASSPHRASE } from "./stellar";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface WalletState {
+  connected: boolean;
+  publicKey: string | null;
+  error: string | null;
+}
+
+// ─── Wallet detection ─────────────────────────────────────────────────────────
+
+/**
+ * Check whether the Freighter extension is installed in the browser.
+ */
+export async function isFreighterInstalled(): Promise<boolean> {
+  try {
+    const result = await isConnected();
+    // isConnected returns { isConnected: boolean } or boolean depending on version
+    if (typeof result === "object" && "isConnected" in result) {
+      return result.isConnected;
+    }
+    return Boolean(result);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if this site has already been granted access by the user.
+ */
+export async function hasSiteAccess(): Promise<boolean> {
+  try {
+    const result = await isAllowed();
+    if (typeof result === "object" && "isAllowed" in result) {
+      return result.isAllowed;
+    }
+    return Boolean(result);
+  } catch {
+    return false;
+  }
+}
+
+// ─── Connect / Disconnect ────────────────────────────────────────────────────
+
+/**
+ * Prompt the user to connect their Freighter wallet.
+ * Returns the user's public key on success.
+ */
+export async function connectWallet(): Promise<{
+  publicKey: string | null;
+  error: string | null;
+}> {
+  // 1. Check extension is installed
+  const installed = await isFreighterInstalled();
+  if (!installed) {
+    return {
+      publicKey: null,
+      error:
+        "Freighter wallet is not installed. Visit https://freighter.app to install it.",
+    };
+  }
+
+  try {
+    // 2. Request access from the user
+    await requestAccess();
+
+    // 3. Get the public key
+    const result = await getPublicKey();
+    const publicKey =
+      typeof result === "object" && "publicKey" in result
+        ? result.publicKey
+        : (result as string);
+
+    if (!publicKey) {
+      return { publicKey: null, error: "No public key returned from Freighter." };
+    }
+
+    return { publicKey, error: null };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    // User rejected the connection
+    if (message.includes("User declined")) {
+      return {
+        publicKey: null,
+        error: "Connection rejected. Please approve the connection in Freighter.",
+      };
+    }
+
+    return { publicKey: null, error: `Wallet connection failed: ${message}` };
+  }
+}
+
+/**
+ * Get the currently connected public key (if any) without prompting.
+ */
+export async function getConnectedPublicKey(): Promise<string | null> {
+  try {
+    const allowed = await hasSiteAccess();
+    if (!allowed) return null;
+
+    const result = await getPublicKey();
+    const pk =
+      typeof result === "object" && "publicKey" in result
+        ? result.publicKey
+        : (result as string);
+    return pk || null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Signing ─────────────────────────────────────────────────────────────────
+
+/**
+ * Ask Freighter to sign a transaction XDR.
+ * Returns the signed XDR string.
+ */
+export async function signTransactionWithWallet(
+  transactionXDR: string
+): Promise<{ signedXDR: string | null; error: string | null }> {
+  try {
+    const network = process.env.NEXT_PUBLIC_STELLAR_NETWORK === "mainnet"
+      ? "MAINNET"
+      : "TESTNET";
+
+    const result = await signTransaction(transactionXDR, {
+      networkPassphrase: NETWORK_PASSPHRASE,
+      network,
+    });
+
+    const signedXDR =
+      typeof result === "object" && "signedTransaction" in result
+        ? result.signedTransaction
+        : (result as string);
+
+    return { signedXDR, error: null };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    if (message.includes("User declined") || message.includes("rejected")) {
+      return {
+        signedXDR: null,
+        error: "Transaction signing was rejected by the user.",
+      };
+    }
+
+    return { signedXDR: null, error: `Signing failed: ${message}` };
+  }
+}
