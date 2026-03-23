@@ -6,6 +6,7 @@
 "use strict";
 
 const stellarService = require("../services/stellarService");
+const usernameService = require("../services/usernameService");
 
 /**
  * GET /api/accounts/:publicKey
@@ -34,25 +35,43 @@ async function getBalance(req, res, next) {
 }
 
 /**
- * GET /api/accounts/resolve/:username
- *
- * PLACEHOLDER — Username → wallet address resolution.
- * This will be implemented in v1.2 (see ROADMAP.md).
- *
- * Future implementation ideas:
- *   - Store username→publicKey mapping in a database
- *   - Integrate with Stellar's Federation protocol
- *   - Support ENS-style resolution
+ * POST /api/accounts/register
+ * Register a new username with a public key.
  */
-async function resolveUsername(req, res) {
-  const { username } = req.params;
-  // TODO: implement username resolution (ROADMAP v1.2)
-  res.status(501).json({
-    success: false,
-    error: "Username resolution is not yet implemented.",
-    docs: "See ROADMAP.md for v1.2 — Username Payments",
-    username,
-  });
+async function registerUsername(req, res, next) {
+  try {
+    const { username, publicKey } = req.body;
+
+    if (!username || !publicKey) {
+      return res.status(400).json({
+        success: false,
+        error: "Username and public key are required",
+      });
+    }
+
+    const result = usernameService.registerUsername(username, publicKey);
+    res.status(201).json({
+      success: true,
+      data: result,
+      message: "Username registered successfully",
+    });
+  } catch (err) {
+    next(err);
+  }
 }
 
-module.exports = { getAccount, getBalance, resolveUsername };
+/**
+ * GET /api/accounts/resolve/:username
+ * Resolve a username to its associated public key.
+ */
+async function resolveUsername(req, res, next) {
+  try {
+    const { username } = req.params;
+    const result = usernameService.resolveUsername(username);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getAccount, getBalance, registerUsername, resolveUsername };
