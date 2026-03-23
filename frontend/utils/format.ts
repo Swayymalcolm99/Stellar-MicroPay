@@ -49,6 +49,16 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 /**
+ * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
+ */
+export function formatUSD(usdValue: number): string {
+  return `≈ $${usdValue.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} USD`;
+}
+
+/**
  * Clamp a string amount between min and max.
  */
 export function clampAmount(value: string, min = 0.0000001, max = 999999): number {

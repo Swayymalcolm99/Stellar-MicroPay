@@ -10,7 +10,7 @@ import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
 import { getXLMBalance, shortenAddress } from "@/lib/stellar";
-import { formatXLM, copyToClipboard } from "@/utils/format";
+import { formatXLM, formatUSD, copyToClipboard } from "@/utils/format";
 
 interface DashboardProps {
   publicKey: string | null;
@@ -21,6 +21,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const router = useRouter();
   const [xlmBalance, setXlmBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
+  const [xlmPrice, setXlmPrice] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -40,6 +41,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   useEffect(() => {
     fetchBalance();
   }, [fetchBalance, refreshKey]);
+
+  // Fetch XLM/USD price from CoinGecko — fails silently
+  useEffect(() => {
+    fetch("https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd")
+      .then((res) => res.json())
+      .then((data) => setXlmPrice(data?.stellar?.usd ?? null))
+      .catch(() => setXlmPrice(null));
+  }, [refreshKey]);
 
   const handleCopyAddress = async () => {
     if (!publicKey) return;
@@ -121,6 +130,11 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                   })}
                   <span className="text-stellar-400 text-xl ml-2">XLM</span>
                 </div>
+                {xlmPrice !== null && (
+                  <p className="text-sm text-slate-400 mt-0.5">
+                    {formatUSD(parseFloat(xlmBalance) * xlmPrice)}
+                  </p>
+                )}
                 <button
                   onClick={fetchBalance}
                   className="mt-1 text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1 sm:justify-end"
