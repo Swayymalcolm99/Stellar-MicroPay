@@ -3,6 +3,7 @@
  * Shared formatting utilities.
  */
 
+import { PaymentRecord } from "@/lib/stellar";
 import { formatDistanceToNow, format } from "date-fns";
 
 /**
@@ -65,4 +66,66 @@ export function clampAmount(value: string, min = 0.0000001, max = 999999): numbe
   const num = parseFloat(value);
   if (isNaN(num)) return min;
   return Math.max(min, Math.min(max, num));
+}
+
+
+/** Wrap a cell value in quotes and escape any internal quotes. */
+function csvCell(value: string | number | undefined | null): string {
+  const str = value == null ? "" : String(value);
+  // Escape double-quotes by doubling them, then wrap the whole cell
+  return `"${str.replace(/"/g, '""')}"`;
+}
+ 
+/**
+ * Convert an array of PaymentRecords to a CSV string and trigger a browser
+ * file download. No server required — uses a Blob URL.
+ *
+ * Columns: Date, Type, Amount, Asset, From, To, Memo, Transaction Hash
+ */
+export function exportToCSV(payments: PaymentRecord[]): void {
+  const HEADERS = [
+    "Date",
+    "Type",
+    "Amount",
+    "Asset",
+    "From",
+    "To",
+    "Memo",
+    "Transaction Hash",
+  ];
+ 
+  const rows = payments.map((tx) => [
+    csvCell(format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm:ss")),
+    csvCell(tx.type === "sent" ? "Sent" : "Received"),
+    csvCell(parseFloat(tx.amount).toFixed(7)),
+    csvCell(tx.asset ?? "XLM"),
+    csvCell(tx.from),
+    csvCell(tx.to),
+    csvCell(tx.memo ?? ""),
+    csvCell(tx.transactionHash),
+  ]);
+ 
+  const csv = [
+    HEADERS.map(csvCell).join(","),
+    ...rows.map((r) => r.join(",")),
+  ].join("\r\n");
+ 
+  // Build a date stamp for the filename  e.g. "2024-11-03"
+  const dateStamp = format(new Date(), "yyyy-MM-dd");
+  const filename = `stellar-micropay-transactions-${dateStamp}.csv`;
+ 
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+ 
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+ 
+  // Clean up
+  document.body.removeChild(link);
+  // Small delay so the browser has time to start the download before revocation
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

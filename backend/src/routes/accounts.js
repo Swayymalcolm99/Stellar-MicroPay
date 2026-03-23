@@ -22,9 +22,14 @@ router.get("/:publicKey", accountController.getAccount);
 router.get("/:publicKey/balance", accountController.getBalance);
 
 /**
+ * POST /api/accounts/register
+ * Register a new username with a public key.
+ */
+router.post("/register", accountController.registerUsername);
+
+/**
  * GET /api/accounts/resolve/:username
- * [PLACEHOLDER] Resolve a username to a Stellar public key.
- * See ROADMAP.md v1.2 — Username Payments.
+ * Resolve a username to a Stellar public key.
  */
 router.get("/resolve/:username", accountController.resolveUsername);
 

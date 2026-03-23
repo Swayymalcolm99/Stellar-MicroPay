@@ -4,7 +4,13 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { getPaymentHistory, shortenAddress, explorerUrl, PaymentRecord, PaymentHistoryResponse } from "@/lib/stellar";
+import {
+  getPaymentHistory,
+  shortenAddress,
+  explorerUrl,
+  PaymentRecord,
+  PaymentHistoryResponse,
+} from "@/lib/stellar";
 import { formatXLM, timeAgo, copyToClipboard } from "@/utils/format";
 import clsx from "clsx";
 
@@ -12,12 +18,15 @@ interface TransactionListProps {
   publicKey: string;
   limit?: number;
   compact?: boolean;
+  /** Called whenever the payments array changes so the parent can access it. */
+  onPaymentsChange?: (payments: PaymentRecord[]) => void;
 }
 
 export default function TransactionList({
   publicKey,
   limit = 20,
   compact = false,
+  onPaymentsChange,
 }: TransactionListProps) {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,47 +36,60 @@ export default function TransactionList({
   const [hasMore, setHasMore] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
 
-  const fetchPayments = useCallback(async (isLoadMore = false) => {
-    if (isLoadMore) {
-      setLoadingMore(true);
-    } else {
-      setLoading(true);
-      setPayments([]);
-      setNextCursor(undefined);
-      setHasMore(true);
-    }
-    setError(null);
-    try {
-      const data: PaymentHistoryResponse = await getPaymentHistory(
-        publicKey,
-        limit,
-        isLoadMore ? nextCursor : undefined
-      );
-      
+  const updatePayments = useCallback(
+    (next: PaymentRecord[]) => {
+      setPayments(next);
+      onPaymentsChange?.(next);
+    },
+    [onPaymentsChange]
+  );
+
+  const fetchPayments = useCallback(
+    async (isLoadMore = false) => {
       if (isLoadMore) {
-        setPayments((prev: PaymentRecord[]) => [...prev, ...data.records]);
+        setLoadingMore(true);
       } else {
-        setPayments(data.records);
+        setLoading(true);
+        updatePayments([]);
+        setNextCursor(undefined);
+        setHasMore(true);
       }
-      
-      setHasMore(data.hasMore);
-      setNextCursor(data.nextCursor);
-    } catch (err) {
-      setError("Could not load transaction history.");
-      console.error(err);
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, [publicKey, limit, nextCursor]);
+      setError(null);
+      try {
+        const data: PaymentHistoryResponse = await getPaymentHistory(
+          publicKey,
+          limit,
+          isLoadMore ? nextCursor : undefined
+        );
+
+        if (isLoadMore) {
+          setPayments((prev) => {
+            const merged = [...prev, ...data.records];
+            onPaymentsChange?.(merged);
+            return merged;
+          });
+        } else {
+          updatePayments(data.records);
+        }
+
+        setHasMore(data.hasMore);
+        setNextCursor(data.nextCursor);
+      } catch (err) {
+        setError("Could not load transaction history.");
+        console.error(err);
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [publicKey, limit, nextCursor, updatePayments, onPaymentsChange]
+  );
 
   useEffect(() => {
     fetchPayments();
   }, [fetchPayments]);
 
-  const handleLoadMore = () => {
-    fetchPayments(true);
-  };
+  const handleLoadMore = () => fetchPayments(true);
 
   const handleCopy = async (text: string, id: string) => {
     await copyToClipboard(text);
@@ -90,21 +112,14 @@ export default function TransactionList({
               key={i}
               className="flex items-center gap-3 p-3 rounded-xl bg-cosmos-800"
             >
-              {/* Avatar circle */}
               <div className="w-10 h-10 rounded-full bg-cosmos-700 animate-pulse flex-shrink-0" />
-
-              {/* Text lines */}
               <div className="flex-1 min-w-0 space-y-2">
-                {/* First line: "Sent to" label + address pill */}
                 <div className="flex items-center gap-2">
                   <div className="h-3 w-14 rounded bg-cosmos-700 animate-pulse" />
                   <div className="h-5 w-28 rounded-lg bg-cosmos-700 animate-pulse" />
                 </div>
-                {/* Second line: timestamp */}
                 <div className="h-2.5 w-20 rounded bg-cosmos-700/70 animate-pulse" />
               </div>
-
-              {/* Amount */}
               <div className="flex-shrink-0 h-4 w-20 rounded bg-cosmos-700 animate-pulse" />
             </div>
           ))}
@@ -118,7 +133,10 @@ export default function TransactionList({
       <div className={compact ? "" : "card"}>
         <div className="text-center py-8">
           <p className="text-red-400 text-sm mb-3">{error}</p>
-          <button onClick={() => fetchPayments()} className="btn-secondary text-sm py-2 px-4">
+          <button
+            onClick={() => fetchPayments()}
+            className="btn-secondary text-sm py-2 px-4"
+          >
             Try again
           </button>
         </div>
@@ -203,7 +221,9 @@ export default function TransactionList({
                 </button>
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-slate-500">{timeAgo(tx.createdAt)}</span>
+                <span className="text-xs text-slate-500">
+                  {timeAgo(tx.createdAt)}
+                </span>
                 {tx.memo && (
                   <span className="text-xs text-slate-600 truncate max-w-32">
                     · &ldquo;{tx.memo}&rdquo;
@@ -235,8 +255,8 @@ export default function TransactionList({
             </div>
           </div>
         ))}
-        
-        {/* Load more button */}
+
+        {/* Load more */}
         {hasMore && payments.length > 0 && (
           <div className="flex justify-center mt-4">
             <button
@@ -298,6 +318,14 @@ function ExternalLinkIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+    </svg>
+  );
+}
+
+function DownloadIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
     </svg>
   );
 }

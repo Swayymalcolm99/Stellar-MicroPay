@@ -7,7 +7,10 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
 import TransactionList from "@/components/TransactionList";
-import { shortenAddress } from "@/lib/stellar";
+import { shortenAddress, PaymentRecord } from "@/lib/stellar";
+import { exportToCSV } from "@/utils/format";
+import { useCallback, useState } from "react";
+ 
 
 interface TransactionsProps {
   publicKey: string | null;
@@ -16,6 +19,24 @@ interface TransactionsProps {
 
 export default function Transactions({ publicKey, onConnect }: TransactionsProps) {
   const router = useRouter();
+
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [exporting, setExporting] = useState(false);
+
+  // Receives the latest payments array from the list whenever it changes
+  const handlePaymentsChange = useCallback((records: PaymentRecord[]) => {
+    setPayments(records);
+  }, []);
+  const handleExport = () => {
+    if (payments.length === 0) return;
+    setExporting(true);
+    try {
+      exportToCSV(payments);
+    } finally {
+      // Small delay so the button flash feels intentional
+      setTimeout(() => setExporting(false), 800);
+    }
+  };
 
   if (!publicKey) {
     return (
@@ -44,10 +65,59 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
             <span className="address-pill">{shortenAddress(publicKey)}</span>
           </div>
         </div>
-        <Link href="/dashboard" className="btn-secondary text-sm py-2 px-4">
-          ← Dashboard
-        </Link>
+
+        <div className="flex items-center gap-2 shrink-0 pt-1">
+          {/* Download CSV */}
+          <button
+            onClick={handleExport}
+            disabled={payments.length === 0 || exporting}
+            title={
+              payments.length === 0
+                ? "No transactions to export"
+                : `Export ${payments.length} transaction${payments.length !== 1 ? "s" : ""} as CSV`
+            }
+            className={[
+              "inline-flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg",
+              "border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60",
+              payments.length === 0 || exporting
+                ? "border-white/10 text-slate-600 cursor-not-allowed"
+                : "border-stellar-500/30 text-stellar-400 hover:bg-stellar-500/10 hover:border-stellar-500/50",
+            ].join(" ")}
+          >
+            {exporting ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+                Exporting…
+              </>
+            ) : (
+              <>
+                {/* Download arrow icon */}
+                <svg
+                  className="w-3.5 h-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+                  />
+                </svg>
+                Download CSV
+              </>
+            )}
+          </button>
+
+          <Link href="/dashboard" className="btn-secondary text-sm py-2 px-4">
+            ← Dashboard
+          </Link>
+        </div>
       </div>
+
+
 
       {/* Export hint */}
       <div className="mb-5 p-3 rounded-xl bg-stellar-500/5 border border-stellar-500/15 flex items-center justify-between">
@@ -65,7 +135,11 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
       </div>
 
       {/* Full transaction list */}
-      <TransactionList publicKey={publicKey} limit={20} />
+      <TransactionList
+        publicKey={publicKey}
+        limit={20}
+        onPaymentsChange={handlePaymentsChange}
+      />
     </div>
   );
 }
