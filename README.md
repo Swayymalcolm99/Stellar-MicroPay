@@ -42,6 +42,7 @@ stellar-micropay/
 | npm / yarn | Latest |
 | Rust + Cargo | ≥ 1.74 (for contracts) |
 | Freighter Wallet | Browser extension |
+| Docker + Compose | ≥ 24.x (optional, recommended) |
 
 ### 1. Clone the repository
 
@@ -50,29 +51,45 @@ git clone https://github.com/your-org/stellar-micropay.git
 cd stellar-micropay
 ```
 
-### 2. Start the Frontend
+### 2. Option A — Docker (recommended)
+
+The fastest way to get a fully working dev environment with hot-reload:
 
 ```bash
-cd frontend
-npm install
-cp .env.example .env.local
-npm run dev
+docker compose up
 ```
 
-Visit `http://localhost:3000`
+- Frontend (HMR): http://localhost:3000
+- Backend (nodemon): http://localhost:4000
 
-### 3. Start the Backend
+Editing any frontend or backend file reflects instantly without restarting containers.
+
+For a production build:
 
 ```bash
-cd backend
-npm install
-cp .env.example .env
-npm run dev
+docker compose -f docker-compose.prod.yml up --build
 ```
 
-API runs at `http://localhost:4000`
+### 2. Option B — Manual Setup
 
-### 4. Build Soroban Contracts (optional)
+Run the setup script to install all dependencies and copy env files:
+
+```bash
+chmod +x scripts/setup-dev.sh
+./scripts/setup-dev.sh
+```
+
+Then start each service in a separate terminal:
+
+```bash
+# Terminal 1
+cd frontend && npm run dev   # → http://localhost:3000
+
+# Terminal 2
+cd backend && npm run dev    # → http://localhost:4000
+```
+
+### 3. Build Soroban Contracts (optional)
 
 ```bash
 cd contracts/stellar-micropay-contract
