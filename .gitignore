@@ -42,3 +42,6 @@ Thumbs.db
 .env
 dist/
 build/
+# Playwright
+playwright-report/
+test-results/

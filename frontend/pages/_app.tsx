@@ -60,10 +60,26 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
       <Head>
-        <title>Stellar MicroPay</title>
-        <meta name="description" content="Cross-border micro-payments on the Stellar blockchain" />
+        {/* Title and SEO */}
+        <title>Stellar-MicroPay | Instant Micropayments</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
+        <meta name="description" content="Send instant, low-fee micropayments globally using the Stellar network. Secure, fast, and transparent." />
+        
+        {/* Favicon */}
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+        {/* Open Graph / Facebook / Discord */}
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://stellar-micropay.vercel.app/" />
+        <meta property="og:title" content="Stellar-MicroPay | Instant Micropayments" />
+        <meta property="og:description" content="Send instant, low-fee micropayments globally using the Stellar network. Secure, fast, and transparent." />
+        <meta property="og:image" content="https://stellar-micropay.vercel.app/og-card.png" />
+
+        {/* Twitter */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Stellar-MicroPay | Instant Micropayments" />
+        <meta name="twitter:description" content="Send instant, low-fee micropayments globally using the Stellar network. Secure, fast, and transparent." />
+        <meta name="twitter:image" content="https://stellar-micropay.vercel.app/og-card.png" />
       </Head>
 
       <div className="min-h-screen bg-white dark:bg-cosmos-900 bg-grid transition-colors duration-300">
