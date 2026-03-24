@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Required for the production Docker image (copies only what's needed)
+  output: "standalone",
   // Allow Stellar SDK in browser
   webpack: (config) => {
     config.resolve.fallback = {
