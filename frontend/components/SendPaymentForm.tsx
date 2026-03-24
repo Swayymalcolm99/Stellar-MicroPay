@@ -6,7 +6,7 @@
  * Emmy123222/Stellar-MicroPay
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   buildPaymentTransaction,
   submitTransaction,
@@ -21,6 +21,13 @@ interface SendPaymentFormProps {
   publicKey: string;
   xlmBalance: string;
   onSuccess?: () => void;
+  // FIX: Added prefill to interface to stop the "Property does not exist" error
+  prefill?: {
+    destination: string;
+    amount: string;
+    memo?: string;
+    validUntil?: number;
+  } | null;
 }
 
 type Status = "idle" | "building" | "signing" | "submitting" | "success" | "error";
@@ -29,6 +36,7 @@ export default function SendPaymentForm({
   publicKey,
   xlmBalance,
   onSuccess,
+  prefill,
 }: SendPaymentFormProps) {
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
@@ -36,6 +44,15 @@ export default function SendPaymentForm({
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+
+  // Sync state if prefill data is provided (e.g., from a payment link)
+  useEffect(() => {
+    if (prefill) {
+      if (prefill.destination) setDestination(prefill.destination);
+      if (prefill.amount) setAmount(prefill.amount);
+      if (prefill.memo) setMemo(prefill.memo);
+    }
+  }, [prefill]);
 
   const balance = parseFloat(xlmBalance);
   const amountNum = parseFloat(amount);
@@ -296,7 +313,6 @@ function ExternalLinkIcon({ className }: { className?: string }) {
   );
 }
 
-// Issue #8 — Info icon for the 1 XLM reserve tooltip
 function InfoIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
