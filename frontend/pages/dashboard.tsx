@@ -4,15 +4,14 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/router";
 import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
 import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
-import { getXLMBalance, shortenAddress, fundWithFriendbot, ACCOUNT_NOT_FOUND_ERROR } from "@/lib/stellar";
-import { formatXLM, formatUSD, copyToClipboard } from "@/utils/format";
+import { getXLMBalance, fundWithFriendbot, ACCOUNT_NOT_FOUND_ERROR } from "@/lib/stellar";
+import { formatUSD, copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
 
 interface DashboardProps {
@@ -20,8 +19,16 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
+interface PaymentStats {
+  publicKey: string;
+  totalSentXLM: string;
+  totalReceivedXLM: string;
+  sentCount: number;
+  receivedCount: number;
+  totalTransactions: number;
+}
+
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
-  const router = useRouter();
   const [xlmBalance, setXlmBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
@@ -33,6 +40,9 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const isTestnet = process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet";
   const [accountNotFound, setAccountNotFound] = useState(false);
   const [friendbotLoading, setFriendbotLoading] = useState(false);
+  const [paymentStats, setPaymentStats] = useState<PaymentStats | null>(null);
+  const [paymentStatsLoading, setPaymentStatsLoading] = useState(false);
+  const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -67,9 +77,59 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }
   };
 
+  const fetchPaymentStats = useCallback(async () => {
+    if (!publicKey) return;
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+
+    setPaymentStatsLoading(true);
+    setPaymentStatsError(null);
+
+    try {
+      const response = await fetch(
+        `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`
+      );
+
+      if (!response.ok) {
+        throw new Error("Unable to load payment stats right now.");
+      }
+
+      const payload = await response.json();
+      const data = payload?.data;
+
+      if (
+        !payload?.success ||
+        !data ||
+        typeof data.totalSentXLM !== "string" ||
+        typeof data.totalReceivedXLM !== "string" ||
+        typeof data.totalTransactions !== "number"
+      ) {
+        throw new Error("Payment stats response was invalid.");
+      }
+
+      setPaymentStats({
+        publicKey: data.publicKey,
+        totalSentXLM: data.totalSentXLM,
+        totalReceivedXLM: data.totalReceivedXLM,
+        sentCount: Number(data.sentCount ?? 0),
+        receivedCount: Number(data.receivedCount ?? 0),
+        totalTransactions: data.totalTransactions,
+      });
+    } catch {
+      setPaymentStats(null);
+      setPaymentStatsError("Could not load your payment stats.");
+    } finally {
+      setPaymentStatsLoading(false);
+    }
+  }, [publicKey]);
+
   useEffect(() => {
     fetchBalance();
   }, [fetchBalance, refreshKey]);
+
+  useEffect(() => {
+    fetchPaymentStats();
+  }, [fetchPaymentStats, refreshKey]);
 
   // Fetch XLM/USD price from CoinGecko — fails silently
   useEffect(() => {
@@ -115,6 +175,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         <h1 className="font-display text-3xl font-bold text-white mb-1">Dashboard</h1>
         <p className="text-slate-400 text-sm">Send and receive XLM globally</p>
       </div>
+
+      <PaymentStatsWidget
+        stats={paymentStats}
+        loading={paymentStatsLoading}
+        error={paymentStatsError}
+        onRetry={fetchPaymentStats}
+      />
 
       {/* Wallet card */}
       <div className="card mb-6 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-stellar-500/20 relative overflow-hidden">
@@ -274,6 +341,106 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 }
 
 // ─── Icons ─────────────────────────────────────────────────────────────────────
+
+function PaymentStatsWidget({
+  stats,
+  loading,
+  error,
+  onRetry,
+}: {
+  stats: PaymentStats | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (loading) {
+    return (
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6" aria-label="Payment stats loading">
+        <span className="sr-only">Loading payment stats</span>
+        {[0, 1, 2].map((index) => (
+          <div
+            key={index}
+            className="card border-white/10 bg-white/[0.03] animate-pulse"
+          >
+            <div className="h-3 w-24 rounded bg-white/10 mb-3" />
+            <div className="h-8 w-32 rounded bg-white/10 mb-2" />
+            <div className="h-3 w-20 rounded bg-white/10" />
+          </div>
+        ))}
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="card mb-6 border-red-500/20 bg-red-500/5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-white">Payment summary</p>
+            <p className="text-sm text-red-300">{error}</p>
+          </div>
+          <button
+            onClick={onRetry}
+            className="btn-secondary text-sm px-4 py-2"
+          >
+            Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (!stats) return null;
+
+  return (
+    <section className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
+      <StatsCard
+        label="Total Sent"
+        value={formatStatsXLM(stats.totalSentXLM)}
+        helper={`${stats.sentCount} outgoing payment${stats.sentCount === 1 ? "" : "s"}`}
+      />
+      <StatsCard
+        label="Total Received"
+        value={formatStatsXLM(stats.totalReceivedXLM, "received")}
+        helper={`${stats.receivedCount} incoming payment${stats.receivedCount === 1 ? "" : "s"}`}
+      />
+      <StatsCard
+        label="Transactions"
+        value={stats.totalTransactions.toLocaleString("en-US")}
+        helper="Across sent and received activity"
+      />
+    </section>
+  );
+}
+
+function StatsCard({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <div className="card border-white/10 bg-white/[0.03]">
+      <p className="label mb-2">{label}</p>
+      <p className="font-display text-2xl font-bold text-white">{value}</p>
+      <p className="text-xs text-slate-400 mt-2">{helper}</p>
+    </div>
+  );
+}
+
+function formatStatsXLM(amount: string, suffix = "sent") {
+  const value = parseFloat(amount);
+
+  if (Number.isNaN(value)) return `0.00 XLM ${suffix}`;
+
+  return `${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 7,
+  })} XLM ${suffix}`;
+}
 
 function CopyIcon({ className }: { className?: string }) {
   return (

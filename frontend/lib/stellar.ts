@@ -102,7 +102,7 @@ export const ACCOUNT_NOT_FOUND_ERROR = "ACCOUNT_NOT_FOUND";
 export async function getBalances(publicKey: string): Promise<WalletBalance[]> {
   try {
     const account = await server.loadAccount(publicKey);
-    return account.balances.map((b) => {
+    return account.balances.map((b: Horizon.HorizonApi.BalanceLine) => {
       if (b.asset_type === "native") {
         return { asset: "native", balance: b.balance, assetCode: "XLM" };
       }
