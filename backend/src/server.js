@@ -23,7 +23,15 @@ const PORT = process.env.PORT || 4000;
 
 app.use(helmet());
 app.use(morgan("dev"));
-app.use(express.json());
+app.use(express.json({ limit: "10kb" }));
+
+// JSON parsing error handler
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
+    return res.status(400).json({ error: "Invalid JSON body" });
+  }
+  next();
+});
 
 // CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000")
@@ -45,7 +53,7 @@ app.use(
   })
 );
 
-// Rate limiting — 100 requests per 15 minutes per IP
+// Global rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -54,25 +62,6 @@ const limiter = rateLimit({
   message: { error: "Too many requests, please try again later." },
 });
 app.use(limiter);
-
-// ─── Routes ───────────────────────────────────────────────────────────────────
-
-app.use("/health", healthRoutes);
-app.use("/api/accounts", accountRoutes);
-app.use("/api/payments", paymentRoutes);
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: `Route ${req.method} ${req.path} not found` });
-});
-
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error("[Error]", err.message);
-  res.status(err.status || 500).json({
-    error: err.message || "Internal server error",
-  });
-});
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
