@@ -14,8 +14,8 @@ require("dotenv").config();
 
 const accountRoutes = require("./routes/accounts");
 const paymentRoutes = require("./routes/payments");
-const healthRoutes  = require("./routes/health");
-const authRoutes    = require("./routes/auth");
+const healthRoutes = require("./routes/health");
+const federationRoutes = require("./routes/federation");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -72,14 +72,44 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// ─── Routes ──────────────────────────────────────────────────────────────────
+
+app.use("/api/accounts", accountRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/health", healthRoutes);
+app.use("/federation", federationRoutes);
+
+// ─── Error Handling ────────────────────────────────────────────────────────────
+
+app.use((err, req, res, next) => {
+  const status = err.status || 500;
+  const message = err.message || "Internal Server Error";
+
+  res.status(status).json({ error: message });
+});
+
+// ─── Static Files ─────────────────────────────────────────────────────────────
+
+app.get("/.well-known/stellar.toml", (req, res) => {
+  const domain = process.env.DOMAIN || "stellarmicropay.com";
+  const tomlContent = `[FEDERATION_SERVER]
+ACTIVE = true
+SERVER = "https://${domain}/federation"
+`;
+  res.setHeader("Content-Type", "application/toml");
+  res.send(tomlContent);
+});
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-  console.log(`
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`
   ✨ Stellar MicroPay API
   🚀 Server running at http://localhost:${PORT}
   🌐 Network: ${process.env.STELLAR_NETWORK || "testnet"}
   `);
-});
+  });
+}
 
 module.exports = app;
