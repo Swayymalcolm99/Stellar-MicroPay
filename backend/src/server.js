@@ -13,6 +13,7 @@ const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 
 const accountRoutes = require("./routes/accounts");
+const authRoutes = require("./routes/auth");
 const paymentRoutes = require("./routes/payments");
 const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");

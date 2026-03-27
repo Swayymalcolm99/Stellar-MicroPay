@@ -128,4 +128,4 @@ function validatePublicKey(publicKey) {
   }
 }
 
-module.exports = { getAccount, getXLMBalance, getPayments };
+module.exports = { getAccount, getXLMBalance, getPayments, validatePublicKey };
