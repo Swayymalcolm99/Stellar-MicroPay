@@ -4,6 +4,15 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 import Link from "next/link";
 import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
 import WalletConnect from "@/components/WalletConnect";
@@ -17,6 +26,7 @@ import {
   fundWithFriendbot,
   ACCOUNT_NOT_FOUND_ERROR,
   streamPayments,
+  getRecentPaymentsForStats,
   PaymentRecord,
 } from "@/lib/stellar";
 import { formatUSD, copyToClipboard } from "@/utils/format";
@@ -53,6 +63,9 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [paymentStatsLoading, setPaymentStatsLoading] = useState(false);
   const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
   const [incomingPayment, setIncomingPayment] = useState<PaymentRecord | null>(null);
+  const [spendingData, setSpendingData] = useState<any[]>([]);
+  const [spendingLoading, setSpendingLoading] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<any | null>(null);
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -127,6 +140,56 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       setPaymentStatsLoading(false);
     }
   }, [publicKey]);
+
+  const fetchSpendingHistory = useCallback(async () => {
+    if (!publicKey) return;
+
+    setSpendingLoading(true);
+    try {
+      const payments = await getRecentPaymentsForStats(publicKey, 200);
+      
+      // Group by calendar month (last 6 months)
+      const now = new Date();
+      const months = [];
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        months.push({
+          month: d.toLocaleString("default", { month: "short" }),
+          monthIndex: d.getMonth(),
+          year: d.getFullYear(),
+          sent: 0,
+          received: 0,
+          label: d.toLocaleString("default", { month: "long", year: "numeric" }),
+        });
+      }
+
+      payments.forEach((p) => {
+        const pDate = new Date(p.createdAt);
+        const m = months.find(
+          (m) =>
+            m.monthIndex === pDate.getMonth() && m.year === pDate.getFullYear()
+        );
+        if (m) {
+          const amount = parseFloat(p.amount);
+          if (p.type === "sent") {
+            m.sent += amount;
+          } else {
+            m.received += amount;
+          }
+        }
+      });
+
+      setSpendingData(months);
+    } catch (err) {
+      console.error("Failed to fetch spending history:", err);
+    } finally {
+      setSpendingLoading(false);
+    }
+  }, [publicKey]);
+
+  useEffect(() => {
+    fetchSpendingHistory();
+  }, [fetchSpendingHistory, refreshKey]);
 
   const handleFriendbot = async () => {
     if (!publicKey) return;
@@ -230,6 +293,38 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         error={paymentStatsError}
         onRetry={fetchPaymentStats}
       />
+
+      <MonthlySpendingChart 
+        data={spendingData} 
+        loading={spendingLoading}
+        onBarClick={setSelectedMonth}
+      />
+
+      {selectedMonth && (
+        <div className="mb-8 p-4 rounded-xl bg-stellar-500/5 border border-stellar-500/10 flex items-center justify-between animate-fade-in">
+          <div>
+            <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">
+              Selected Period: {selectedMonth.label}
+            </p>
+            <div className="flex items-center gap-6">
+              <div>
+                <span className="text-xs text-slate-400">Total Sent</span>
+                <p className="text-lg font-bold text-white">{selectedMonth.sent.toFixed(2)} XLM</p>
+              </div>
+              <div>
+                <span className="text-xs text-slate-400">Total Received</span>
+                <p className="text-lg font-bold text-stellar-400">{selectedMonth.received.toFixed(2)} XLM</p>
+              </div>
+            </div>
+          </div>
+          <button 
+            onClick={() => setSelectedMonth(null)}
+            className="p-2 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5"
+          >
+            <CloseIcon className="w-5 h-5" />
+          </button>
+        </div>
+      )}
 
       <div className="card mb-8 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-stellar-500/20 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-stellar-500/5 rounded-full blur-2xl pointer-events-none" />
@@ -459,6 +554,66 @@ function PaymentStatsWidget({
   );
 }
 
+function MonthlySpendingChart({
+  data,
+  loading,
+  onBarClick,
+}: {
+  data: any[];
+  loading: boolean;
+  onBarClick: (data: any) => void;
+}) {
+  if (loading && data.length === 0) {
+    return (
+      <div className="card mb-6 h-[350px] animate-pulse bg-white/[0.03] border-white/10" />
+    );
+  }
+
+  return (
+    <div className="card mb-6 overflow-hidden">
+      <h2 className="font-display text-lg font-semibold text-white mb-6">
+        Monthly Spending (XLM)
+      </h2>
+      <div className="h-[250px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={data}
+            onClick={(state) =>
+              state &&
+              state.activePayload &&
+              onBarClick(state.activePayload[0].payload)
+            }
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+            <XAxis
+              dataKey="month"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+            />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              tickFormatter={(value) => `${value}`}
+            />
+            <Tooltip
+              cursor={{ fill: "rgba(255, 255, 255, 0.05)" }}
+              contentStyle={{
+                backgroundColor: "#0f172a",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "8px",
+              }}
+              itemStyle={{ color: "#38bdf8" }}
+            />
+            <Bar dataKey="sent" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 function StatsCard({
   label,
   value,
@@ -544,6 +699,14 @@ function DropIcon({ className }: { className?: string }) {
         strokeWidth={2}
         d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.183.394l-1.154.908a2.4 2.4 0 00-.33 3.58 2.4 2.4 0 003.58-.33l.908-1.154a2 2 0 01.394-1.183L9.12 16.5a2 2 0 00.517-3.86l-.158-.318a6 6 0 01.517-3.86l.477-2.387a2 2 0 01.547-1.022l1.09-1.09a2.4 2.4 0 013.394 0 2.4 2.4 0 010 3.394l-1.09 1.09z"
       />
+    </svg>
+  );
+}
+
+function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
 }
