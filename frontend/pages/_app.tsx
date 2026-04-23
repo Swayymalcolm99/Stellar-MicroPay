@@ -7,6 +7,7 @@ import type { AppProps } from "next/app";
 import { useState, useEffect, createContext, useContext } from "react";
 import Head from "next/head";
 import Navbar from "@/components/Navbar";
+import QuickSendModal from "@/components/QuickSendModal";
 import { getConnectedPublicKey } from "@/lib/wallet";
 import "@/styles/globals.css";
 
@@ -116,6 +117,9 @@ export default function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
+  // Issue #64 — Quick-send modal state
+  const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
+
   // Restore theme preference on load
   useEffect(() => {
     const saved = localStorage.getItem("stellar-micropay:theme") as "dark" | "light" | null;
@@ -199,6 +203,17 @@ export default function App({ Component, pageProps }: AppProps) {
         </main>
         <InstallBanner />
       </div>
+
+      {/* Issue #64 — Quick-send modal, rendered at root so it overlays any page */}
+      {publicKey && (
+        <QuickSendModal
+          isOpen={isQuickSendOpen}
+          onClose={() => setIsQuickSendOpen(false)}
+          publicKey={publicKey}
+          xlmBalance="0"      // replace with real balance if available at app level
+          usdcBalance={null}
+        />
+      )}
     </ThemeContext.Provider>
   );
 }
