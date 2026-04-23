@@ -131,6 +131,16 @@ export type PaymentStreamUnsubscribe = () => void;
 /** Sentinel error message used to detect unfunded accounts in the UI. */
 export const ACCOUNT_NOT_FOUND_ERROR = "ACCOUNT_NOT_FOUND";
 
+/** Friendbot endpoint for Stellar testnet funding. */
+export const FRIENDBOT_URL =
+  process.env.NEXT_PUBLIC_FRIENDBOT_URL || "https://friendbot.stellar.org";
+
+/** Polling options for waiting until an account exists on Horizon. */
+export interface FundingPollOptions {
+  intervalMs?: number;
+  timeoutMs?: number;
+}
+
 /**
  * Fetch all asset balances for a Stellar account.
  *
@@ -177,12 +187,61 @@ export async function getBalances(publicKey: string): Promise<WalletBalance[]> {
  * @see {@link https://developers.stellar.org/docs/learn/networks | Stellar Networks}
  */
 export async function fundWithFriendbot(publicKey: string): Promise<void> {
+  await getFriendBotFunding(publicKey);
+}
+
+/**
+ * Fund an unfunded account through Stellar Friendbot.
+ *
+ * Guarded to testnet only.
+ */
+export async function getFriendBotFunding(publicKey: string): Promise<void> {
+  if (NETWORK !== "testnet") {
+    throw new Error("Friendbot is only available on Stellar testnet.");
+  }
+
   const res = await fetch(
-    `https://friendbot.stellar.org?addr=${encodeURIComponent(publicKey)}`
+    `${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`
   );
+
   if (!res.ok) {
     throw new Error(`Friendbot failed: ${res.status} ${res.statusText}`);
   }
+}
+
+/**
+ * Wait until Horizon can load an account after funding.
+ *
+ * Returns true once the account is visible on Horizon, false on timeout.
+ */
+export async function waitForAccountFunding(
+  publicKey: string,
+  options: FundingPollOptions = {}
+): Promise<boolean> {
+  const intervalMs = options.intervalMs ?? 1500;
+  const timeoutMs = options.timeoutMs ?? 20000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      await getXLMBalance(publicKey);
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "";
+      const isUnfundedError =
+        msg === ACCOUNT_NOT_FOUND_ERROR ||
+        msg.includes("404") ||
+        msg.toLowerCase().includes("not found");
+
+      if (!isUnfundedError) {
+        throw err;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  return false;
 }
 
 /**
