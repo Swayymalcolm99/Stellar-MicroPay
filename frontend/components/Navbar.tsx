@@ -101,6 +101,14 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
           {/* Wallet button */}
           {publicKey ? (
             <div className="flex items-center gap-2">
+              {/* Issue #64 — ⌘K hint, shown only when wallet is connected */}
+              <kbd
+                title="Press Ctrl+K / Cmd+K to quick-send"
+                className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-md border border-stellar-500/20 bg-stellar-500/5 text-stellar-400 text-xs font-mono select-none"
+              >
+                ⌘K
+              </kbd>
+
               <div className="flex items-center gap-2 address-pill">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span>{shortenAddress(publicKey)}</span>
