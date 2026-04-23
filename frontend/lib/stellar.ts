@@ -131,6 +131,16 @@ export type PaymentStreamUnsubscribe = () => void;
 /** Sentinel error message used to detect unfunded accounts in the UI. */
 export const ACCOUNT_NOT_FOUND_ERROR = "ACCOUNT_NOT_FOUND";
 
+/** Friendbot endpoint for Stellar testnet funding. */
+export const FRIENDBOT_URL =
+  process.env.NEXT_PUBLIC_FRIENDBOT_URL || "https://friendbot.stellar.org";
+
+/** Polling options for waiting until an account exists on Horizon. */
+export interface FundingPollOptions {
+  intervalMs?: number;
+  timeoutMs?: number;
+}
+
 /**
  * Fetch all asset balances for a Stellar account.
  *
@@ -177,12 +187,61 @@ export async function getBalances(publicKey: string): Promise<WalletBalance[]> {
  * @see {@link https://developers.stellar.org/docs/learn/networks | Stellar Networks}
  */
 export async function fundWithFriendbot(publicKey: string): Promise<void> {
+  await getFriendBotFunding(publicKey);
+}
+
+/**
+ * Fund an unfunded account through Stellar Friendbot.
+ *
+ * Guarded to testnet only.
+ */
+export async function getFriendBotFunding(publicKey: string): Promise<void> {
+  if (NETWORK !== "testnet") {
+    throw new Error("Friendbot is only available on Stellar testnet.");
+  }
+
   const res = await fetch(
-    `https://friendbot.stellar.org?addr=${encodeURIComponent(publicKey)}`
+    `${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`
   );
+
   if (!res.ok) {
     throw new Error(`Friendbot failed: ${res.status} ${res.statusText}`);
   }
+}
+
+/**
+ * Wait until Horizon can load an account after funding.
+ *
+ * Returns true once the account is visible on Horizon, false on timeout.
+ */
+export async function waitForAccountFunding(
+  publicKey: string,
+  options: FundingPollOptions = {}
+): Promise<boolean> {
+  const intervalMs = options.intervalMs ?? 1500;
+  const timeoutMs = options.timeoutMs ?? 20000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      await getXLMBalance(publicKey);
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "";
+      const isUnfundedError =
+        msg === ACCOUNT_NOT_FOUND_ERROR ||
+        msg.includes("404") ||
+        msg.toLowerCase().includes("not found");
+
+      if (!isUnfundedError) {
+        throw err;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  return false;
 }
 
 /**
@@ -587,6 +646,24 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
 }
 
 /**
+ * Fetch the last N payment transactions for sparkline chart rendering.
+ * Returns records in chronological order (oldest first) so the chart
+ * reads left-to-right over time.
+ *
+ * @param publicKey - Stellar public key (G...) of the account.
+ * @param limit - Number of recent payments to fetch. Defaults to `10`.
+ * @returns Array of {@link PaymentRecord} sorted oldest → newest.
+ */
+export async function getRecentPaymentsForSparkline(
+  publicKey: string,
+  limit = 10
+): Promise<PaymentRecord[]> {
+  const { records } = await getPaymentHistory(publicKey, limit);
+  // getPaymentHistory returns newest-first; reverse for chronological order
+  return records.slice().reverse();
+}
+
+/**
  * Start a server-sent events (SSE) stream of payment operations for an account.
  *
  * Uses Horizon's streaming support under the hood via the JS SDK. New payment
@@ -663,4 +740,41 @@ export function streamPayments(
       // swallow errors on close
     }
   };
+}
+
+/**
+ * Fetch a larger history of payments for statistical analysis.
+ * Skips memo fetching to improve performance and avoid rate limits.
+ *
+ * @param publicKey - The Stellar public key to query.
+ * @param limit - Max number of payments to fetch (Horizon max is 200).
+ */
+export async function getRecentPaymentsForStats(
+  publicKey: string,
+  limit = 200
+): Promise<PaymentRecord[]> {
+  const payments = await server
+    .payments()
+    .forAccount(publicKey)
+    .limit(limit)
+    .order("desc")
+    .call();
+
+  return payments.records.map((op) => {
+    const payment = op as Horizon.HorizonApi.PaymentOperationResponse;
+    const assetCode =
+      payment.asset_type === "native" ? "XLM" : payment.asset_code || "???";
+
+    return {
+      id: payment.id,
+      type: payment.from === publicKey ? "sent" : "received",
+      amount: payment.amount,
+      asset: assetCode,
+      from: payment.from,
+      to: payment.to,
+      createdAt: payment.created_at,
+      transactionHash: payment.transaction_hash,
+      pagingToken: payment.paging_token,
+    };
+  });
 }
