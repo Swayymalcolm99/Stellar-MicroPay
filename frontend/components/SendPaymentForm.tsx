@@ -15,9 +15,9 @@ import {
   submitTransaction,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import { formatXLM } from "@/utils/format";
+import { formatXLM, parseAddressBookCSV } from "@/utils/format";
 import clsx from "clsx";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface SendPaymentFormProps {
   publicKey: string;
@@ -36,7 +36,20 @@ interface SendPaymentFormProps {
 type Status = "idle" | "building" | "signing" | "submitting" | "success" | "error";
 type AssetType = "XLM" | "USDC";
 
+type FavouriteEntry = {
+  name: string;
+  address: string;
+};
+
+type ImportPreviewRow = {
+  name: string;
+  address: string;
+  status: "valid" | "invalid" | "duplicate";
+  reason: string;
+};
+
 const ESTIMATED_NETWORK_FEE = "0.00001 XLM";
+const FAVOURITES_STORAGE_KEY = "stellar-micropay:favourites";
 
 export default function SendPaymentForm({
   publicKey,
@@ -54,6 +67,19 @@ export default function SendPaymentForm({
   const [txHash, setTxHash] = useState<string | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isTipOnChain, setIsTipOnChain] = useState(false);
+  const [favourites, setFavourites] = useState<FavouriteEntry[]>([]);
+  const [isFavouritesModalOpen, setIsFavouritesModalOpen] = useState(false);
+  const [csvPreview, setCsvPreview] = useState<ImportPreviewRow[]>([]);
+  const [parsedCsvRows, setParsedCsvRows] = useState<Array<{ name: string; address: string }>>([]);
+  const [csvMeta, setCsvMeta] = useState<{
+    valid: number;
+    invalid: number;
+    duplicate: number;
+    total: number;
+  } | null>(null);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [pendingCsvFileName, setPendingCsvFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Sync state if prefill data is provided (e.g., from a payment link)
   useEffect(() => {
@@ -63,6 +89,27 @@ export default function SendPaymentForm({
       if (prefill.memo) setMemo(prefill.memo);
     }
   }, [prefill]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem(FAVOURITES_STORAGE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as FavouriteEntry[];
+      if (Array.isArray(parsed)) {
+        setFavourites(
+          parsed
+            .filter((entry) => entry?.address && entry?.name)
+            .map((entry) => ({
+              name: String(entry.name).trim(),
+              address: String(entry.address).trim(),
+            }))
+        );
+      }
+    } catch {
+      // ignore invalid stored data
+    }
+  }, []);
 
   const xlmBal  = parseFloat(xlmBalance);
   const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;
@@ -77,6 +124,143 @@ export default function SendPaymentForm({
     !isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= maxSend;
   const canSubmit =
     isValidDest && isValidAmt && status === "idle" && destination !== publicKey;
+
+  const saveFavourites = (items: FavouriteEntry[]) => {
+    setFavourites(items);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(FAVOURITES_STORAGE_KEY, JSON.stringify(items));
+    }
+  };
+
+  const normalizedAddress = (value: string) => value.trim().toUpperCase();
+
+  const buildImportPreview = (items: Array<{ name: string; address: string }>) => {
+    const existing = new Set(favourites.map((item) => normalizedAddress(item.address)));
+    const seen = new Set<string>();
+    const previewRows: ImportPreviewRow[] = [];
+    let valid = 0;
+    let invalid = 0;
+    let duplicate = 0;
+
+    items.forEach((item, index) => {
+      const address = item.address.trim();
+      const name = item.name.trim() || "(no name)";
+      const normalized = normalizedAddress(address);
+      const isValid = address.length > 0 && isValidStellarAddress(address);
+      const isDuplicate = isValid && (existing.has(normalized) || seen.has(normalized));
+      let status: ImportPreviewRow["status"];
+      let reason = "";
+
+      if (!address || !isValid) {
+        status = "invalid";
+        reason = "Invalid Stellar address";
+        invalid += 1;
+      } else if (isDuplicate) {
+        status = "duplicate";
+        reason = "Already in favourites";
+        duplicate += 1;
+      } else {
+        status = "valid";
+        reason = "Ready to import";
+        valid += 1;
+        seen.add(normalized);
+      }
+
+      if (previewRows.length < 5) {
+        previewRows.push({ name, address, status, reason });
+      }
+    });
+
+    setCsvPreview(previewRows);
+    setCsvMeta({ total: items.length, valid, invalid, duplicate });
+  };
+
+  const handleFileSelection = async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = parseAddressBookCSV(text);
+      const rows = parsed.filter((row) => row.name || row.address);
+      setParsedCsvRows(rows);
+      buildImportPreview(rows);
+      setPendingCsvFileName(file.name);
+      setImportMessage(null);
+    } catch {
+      setParsedCsvRows([]);
+      setCsvPreview([]);
+      setCsvMeta(null);
+      setImportMessage("Unable to parse CSV file. Please select a valid comma-separated file.");
+      setPendingCsvFileName(null);
+    }
+  };
+
+  const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await handleFileSelection(file);
+    event.target.value = "";
+  };
+
+  const handleConfirmImport = () => {
+    if (!csvMeta || parsedCsvRows.length === 0) return;
+
+    const existing = new Set(favourites.map((item) => normalizedAddress(item.address)));
+    const newEntries: FavouriteEntry[] = [];
+    const seen = new Set<string>();
+
+    parsedCsvRows.forEach((row) => {
+      const address = row.address.trim();
+      const name = row.name.trim() || row.address.trim();
+      const normalized = normalizedAddress(address);
+
+      if (!address || !isValidStellarAddress(address)) {
+        return;
+      }
+      if (existing.has(normalized) || seen.has(normalized)) {
+        return;
+      }
+
+      seen.add(normalized);
+      newEntries.push({ name, address });
+    });
+
+    const importedCount = newEntries.length;
+    const skippedCount = csvMeta.total - importedCount;
+
+    if (importedCount > 0) {
+      saveFavourites([...favourites, ...newEntries]);
+    }
+
+    setImportMessage(`${importedCount} imported, ${skippedCount} skipped`);
+    setCsvPreview([]);
+    setParsedCsvRows([]);
+    setCsvMeta(null);
+    setPendingCsvFileName(null);
+    const fileInput = fileInputRef.current;
+    if (fileInput) {
+      fileInput.value = "";
+    }
+  };
+
+  const handleSelectFavourite = (address: string) => {
+    setDestination(address);
+    setIsFavouritesModalOpen(false);
+  };
+
+  const openFavouritesModal = () => {
+    setImportMessage(null);
+    setCsvPreview([]);
+    setCsvMeta(null);
+    setPendingCsvFileName(null);
+    setIsFavouritesModalOpen(true);
+  };
+
+  const closeFavouritesModal = () => {
+    setIsFavouritesModalOpen(false);
+    setCsvPreview([]);
+    setCsvMeta(null);
+    setPendingCsvFileName(null);
+    setImportMessage(null);
+  };
 
   const executeSend = async () => {
     if (!canSubmit) return;
@@ -180,10 +364,19 @@ export default function SendPaymentForm({
 
   return (
     <div className="card animate-fade-in">
-      <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
-        <SendIcon className="w-5 h-5 text-stellar-400" />
-        {`Send Payment`}
-      </h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
+          <SendIcon className="w-5 h-5 text-stellar-400" />
+          {`Send Payment`}
+        </h2>
+        <button
+          type="button"
+          onClick={openFavouritesModal}
+          className="text-sm text-stellar-400 hover:text-stellar-300 transition-colors"
+        >
+          {`Manage favourites`}
+        </button>
+      </div>
 
       <div className="space-y-5">
         {/* Asset selector */}
@@ -231,6 +424,24 @@ export default function SendPaymentForm({
             <p className="mt-1 text-xs text-amber-400">{`You cannot send to yourself`}</p>
           )}
         </div>
+
+        {favourites.length > 0 && (
+          <div className="rounded-xl border border-white/10 bg-slate-950/70 p-3">
+            <p className="label mb-2">Favourite recipients</p>
+            <div className="flex flex-wrap gap-2">
+              {favourites.slice(0, 6).map((item) => (
+                <button
+                  key={item.address}
+                  type="button"
+                  onClick={() => setDestination(item.address)}
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200 hover:bg-white/10 transition-colors"
+                >
+                  {item.name} • {item.address.slice(0, 6)}...
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Amount */}
         <div>
@@ -371,6 +582,14 @@ export default function SendPaymentForm({
         )}
       </div>
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
+
       <SendConfirmationModal
         isOpen={isConfirmOpen}
         destination={destination}
@@ -380,6 +599,19 @@ export default function SendPaymentForm({
         isTipOnChain={isTipOnChain}
         onCancel={closeConfirmation}
         onConfirm={confirmAndSend}
+      />
+
+      <FavouritesModal
+        isOpen={isFavouritesModalOpen}
+        favourites={favourites}
+        onClose={closeFavouritesModal}
+        onSelectFavourite={handleSelectFavourite}
+        onOpenFilePicker={() => fileInputRef.current?.click()}
+        pendingFileName={pendingCsvFileName}
+        previewRows={csvPreview}
+        meta={csvMeta}
+        importMessage={importMessage}
+        onConfirmImport={handleConfirmImport}
       />
     </div>
   );
@@ -484,6 +716,181 @@ function SendConfirmationModal({
           >
             Confirm
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface FavouritesModalProps {
+  isOpen: boolean;
+  favourites: FavouriteEntry[];
+  onClose: () => void;
+  onSelectFavourite: (address: string) => void;
+  onOpenFilePicker: () => void;
+  pendingFileName: string | null;
+  previewRows: ImportPreviewRow[];
+  meta: { valid: number; invalid: number; duplicate: number; total: number } | null;
+  importMessage: string | null;
+  onConfirmImport: () => void;
+}
+
+function FavouritesModal({
+  isOpen,
+  favourites,
+  onClose,
+  onSelectFavourite,
+  onOpenFilePicker,
+  pendingFileName,
+  previewRows,
+  meta,
+  importMessage,
+  onConfirmImport,
+}: FavouritesModalProps) {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="favourites-modal-title"
+        className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-5">
+          <div>
+            <h3 id="favourites-modal-title" className="font-display text-lg font-semibold text-white">
+              Manage favourites
+            </h3>
+            <p className="mt-1 text-sm text-slate-400">
+              Import a CSV file with columns <strong>name</strong> and <strong>address</strong>.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-200 hover:border-slate-500 hover:text-white transition-colors"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-slate-300">Current favourites</p>
+                  <p className="text-xs text-slate-500">
+                    {favourites.length} saved recipient{favourites.length === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenFilePicker}
+                  className="btn-secondary text-sm px-3 py-2"
+                >
+                  Import from CSV
+                </button>
+              </div>
+
+              {favourites.length === 0 ? (
+                <p className="mt-4 text-sm text-slate-400">No favourites yet. Import a CSV or add recipients manually.</p>
+              ) : (
+                <div className="mt-4 space-y-2">
+                  {favourites.slice(0, 8).map((item) => (
+                    <div
+                      key={item.address}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-3"
+                    >
+                      <div>
+                        <p className="text-sm text-slate-100">{item.name}</p>
+                        <p className="text-xs text-slate-500 break-all">{item.address}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onSelectFavourite(item.address)}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200 hover:bg-white/10 transition-colors"
+                      >
+                        Use
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {pendingFileName && (
+              <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
+                <p className="text-sm text-slate-300">Selected file</p>
+                <p className="mt-1 text-sm text-slate-100">{pendingFileName}</p>
+                {meta && (
+                  <p className="mt-2 text-sm text-slate-400">
+                    {`${meta.valid} valid, ${meta.invalid + meta.duplicate} skipped`}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+            <p className="text-sm text-slate-300 mb-3">Preview (first 5 rows)</p>
+            {previewRows.length === 0 ? (
+              <p className="text-sm text-slate-400">No import preview available.</p>
+            ) : (
+              <div className="space-y-3">
+                {previewRows.map((row, index) => (
+                  <div key={`${row.address}-${index}`} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm text-slate-100">{row.name}</p>
+                        <p className="text-xs text-slate-500 break-all">{row.address}</p>
+                      </div>
+                      <span
+                        className={clsx(
+                          "rounded-full px-2 py-1 text-[11px] font-semibold",
+                          row.status === "valid" && "bg-emerald-500/15 text-emerald-300",
+                          row.status === "invalid" && "bg-red-500/10 text-red-300",
+                          row.status === "duplicate" && "bg-amber-500/10 text-amber-300"
+                        )}
+                      >
+                        {row.reason}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {importMessage && (
+              <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950/70 p-3 text-sm text-slate-200">
+                {importMessage}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={onConfirmImport}
+              disabled={!meta || meta.valid === 0}
+              className="mt-4 w-full btn-primary text-sm disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {`Confirm import`}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -20,6 +20,8 @@ interface TransactionListProps {
   compact?: boolean;
   /** Called whenever the payments array changes so the parent can access it. */
   onPaymentsChange?: (payments: PaymentRecord[]) => void;
+  /** Called when the user wants to print a receipt for a payment. */
+  onPrintReceipt?: (payment: PaymentRecord) => void;
   /** Optional single incoming payment to prepend in real-time. */
   incomingPayment?: PaymentRecord | null;
 }
@@ -29,6 +31,7 @@ export default function TransactionList({
   limit = 20,
   compact = false,
   onPaymentsChange,
+  onPrintReceipt,
   incomingPayment,
 }: TransactionListProps) {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
@@ -250,6 +253,15 @@ export default function TransactionList({
 
             {/* Amount + link */}
             <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => onPrintReceipt?.(tx)}
+                className="inline-flex items-center justify-center rounded-lg border border-white/10 p-2 text-slate-500 transition-colors hover:border-stellar-500/40 hover:text-stellar-400"
+                title="Download receipt"
+                aria-label={`Download receipt for transaction ${tx.id}`}
+              >
+                <PrinterIcon className="w-3.5 h-3.5" />
+              </button>
               <span
                 className={clsx(
                   "text-sm font-mono font-medium",
@@ -338,10 +350,10 @@ function ExternalLinkIcon({ className }: { className?: string }) {
   );
 }
 
-function DownloadIcon({ className }: { className?: string }) {
+function PrinterIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 9V3.75A1.75 1.75 0 018.5 2h7a1.75 1.75 0 011.75 1.75V9M7.5 18.75h9M5.25 9H18.75A2.25 2.25 0 0121 11.25v5.25a1.5 1.5 0 01-1.5 1.5h-2.25V15H6.75v3H4.5A1.5 1.5 0 013 16.5v-5.25A2.25 2.25 0 015.25 9z" />
     </svg>
   );
 }
