@@ -24,6 +24,16 @@ interface SendPaymentFormProps {
   xlmBalance: string;
   usdcBalance?: string | null;
   onSuccess?: () => void;
+  title?: string;
+  submitLabel?: string;
+  successTitle?: string;
+  successMessage?: string;
+  assetOptions?: AssetType[];
+  hideAssetSelector?: boolean;
+  hideDestinationField?: boolean;
+  destinationReadOnly?: boolean;
+  hideAmountField?: boolean;
+  hideMemoField?: boolean;
   // FIX: Added prefill to interface to stop the "Property does not exist" error
   prefill?: {
     destination: string;
@@ -44,6 +54,16 @@ export default function SendPaymentForm({
   usdcBalance,
   onSuccess,
   prefill,
+  title = "Send Payment",
+  submitLabel,
+  successTitle = "Payment sent!",
+  successMessage,
+  assetOptions = ["XLM", "USDC"],
+  hideAssetSelector = false,
+  hideDestinationField = false,
+  destinationReadOnly = false,
+  hideAmountField = false,
+  hideMemoField = false,
 }: SendPaymentFormProps) {
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [destination, setDestination] = useState("");
@@ -63,6 +83,12 @@ export default function SendPaymentForm({
       if (prefill.memo) setMemo(prefill.memo);
     }
   }, [prefill]);
+
+  useEffect(() => {
+    if (!assetOptions.includes(selectedAsset)) {
+      setSelectedAsset(assetOptions[0] || "XLM");
+    }
+  }, [assetOptions, selectedAsset]);
 
   const xlmBal  = parseFloat(xlmBalance);
   const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;
@@ -159,10 +185,10 @@ export default function SendPaymentForm({
           <CheckIcon className="w-7 h-7 text-emerald-400" />
         </div>
         <h3 className="font-display text-lg font-semibold text-white mb-1">
-          {`Payment sent!`}
+          {successTitle}
         </h3>
         <p className="text-slate-400 text-sm mb-4">
-          {formatXLM(amount)} {`sent successfully`}
+          {successMessage || `${formatXLM(amount)} sent successfully`}
         </p>
 
         <a
@@ -182,58 +208,64 @@ export default function SendPaymentForm({
     <div className="card animate-fade-in">
       <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
         <SendIcon className="w-5 h-5 text-stellar-400" />
-        {`Send Payment`}
+        {title}
       </h2>
 
       <div className="space-y-5">
         {/* Asset selector */}
-        <div className="flex gap-2">
-          {(["XLM", "USDC"] as AssetType[]).map((a) => (
-            <button
-              key={a}
-              type="button"
-              onClick={() => { setSelectedAsset(a); setAmount(""); }}
-              disabled={a === "USDC" && !usdcBalance}
-              className={clsx(
-                "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
-                selectedAsset === a
-                  ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
-                  : "text-slate-400 border-white/10 hover:border-white/20",
-                a === "USDC" && !usdcBalance && "opacity-40 cursor-not-allowed"
-              )}
-            >
-              {a}
-              {a === "USDC" && !usdcBalance && (
-                <span className="ml-1 text-xs">(no trustline)</span>
-              )}
-            </button>
-          ))}
-        </div>
+        {!hideAssetSelector && (
+          <div className="flex gap-2">
+            {assetOptions.map((a) => (
+              <button
+                key={a}
+                type="button"
+                onClick={() => { setSelectedAsset(a); setAmount(""); }}
+                disabled={a === "USDC" && !usdcBalance}
+                className={clsx(
+                  "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
+                  selectedAsset === a
+                    ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
+                    : "text-slate-400 border-white/10 hover:border-white/20",
+                  a === "USDC" && !usdcBalance && "opacity-40 cursor-not-allowed"
+                )}
+              >
+                {a}
+                {a === "USDC" && !usdcBalance && (
+                  <span className="ml-1 text-xs">(no trustline)</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Destination */}
-        <div>
-          <label className="label">{`Recipient Address`}</label>
-          <input
-            type="text"
-            value={destination}
-            onChange={(e) => setDestination(e.target.value.trim())}
-            placeholder="G... (Stellar public key)"
-            className={clsx(
-              "input-field",
-              destination.length > 0 && !isValidDest && "border-red-500/50"
+        {!hideDestinationField && (
+          <div>
+            <label className="label">{`Recipient Address`}</label>
+            <input
+              type="text"
+              value={destination}
+              onChange={(e) => setDestination(e.target.value.trim())}
+              placeholder="G... (Stellar public key)"
+              className={clsx(
+                "input-field",
+                destination.length > 0 && !isValidDest && "border-red-500/50"
+              )}
+              disabled={destinationReadOnly || status !== "idle"}
+              readOnly={destinationReadOnly}
+            />
+            {destination.length > 0 && !isValidDest && (
+              <p className="mt-1 text-xs text-red-400">{`Invalid Stellar address`}</p>
             )}
-            disabled={status !== "idle"}
-          />
-          {destination.length > 0 && !isValidDest && (
-            <p className="mt-1 text-xs text-red-400">{`Invalid Stellar address`}</p>
-          )}
-          {destination === publicKey && (
-            <p className="mt-1 text-xs text-amber-400">{`You cannot send to yourself`}</p>
-          )}
-        </div>
+            {destination === publicKey && (
+              <p className="mt-1 text-xs text-amber-400">{`You cannot send to yourself`}</p>
+            )}
+          </div>
+        )}
 
         {/* Amount */}
-        <div>
+        {!hideAmountField && (
+          <div>
           <div className="flex items-center justify-between mb-2">
             <label className="label mb-0">{`Amount (${selectedAsset})`}</label>
 
@@ -297,10 +329,12 @@ export default function SendPaymentForm({
                 : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
             </p>
           )}
-        </div>
+          </div>
+        )}
 
         {/* Memo (optional) */}
-        <div>
+        {!hideMemoField && (
+          <div>
           <label className="label">{`Memo (optional)`}</label>
           <input
             type="text"
@@ -312,7 +346,8 @@ export default function SendPaymentForm({
             disabled={status !== "idle"}
           />
           <p className="mt-1 text-xs text-slate-500">{`${memo.length}/28 characters`}</p>
-        </div>
+          </div>
+        )}
 
         {/* Record as Tip On-Chain (Soroban) */}
         {CONTRACT_ID && (
@@ -357,7 +392,7 @@ export default function SendPaymentForm({
           {status === "idle" && (
             <>
               <SendIcon className="w-4 h-4" />
-              {`Send ${amount ? formatXLM(amountNum) : ""} ${selectedAsset}`.trim()}
+              {submitLabel || `Send ${amount ? formatXLM(amountNum) : ""} ${selectedAsset}`.trim()}
             </>
           )}
           {status === "error" && "Retry"}
